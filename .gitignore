@@ -13,14 +13,5 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# Raw test data
-data/raw/
-
-# Training datasets
-data/training/
-
-# Temporary merged dataset
-data/merged/
-
-# Final processed datasets
-data/processed/
+# Datasets
+data/

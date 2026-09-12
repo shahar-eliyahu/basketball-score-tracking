@@ -32,13 +32,49 @@ The phone is intended mainly as the video source, while inference can initially 
 
 ## Dataset Sources
 
-The final training dataset was created by combining three basketball object-detection datasets from Roboflow, exported in YOLO11 format:
+The development dataset was created by combining three basketball object-detection datasets from Roboflow, exported in YOLO11 format:
 
 - `Basketball detection.v1i.yolov11`
 - `Basketball Game Detections.v9i.yolov11`
 - `Basketball.v1i.yolov11`
 
-The original datasets used different class definitions, so their annotations were remapped into the three unified classes (`basketball`, `hoop`, `player`). The original train/validation/test splits were not preserved for training — all samples were merged into a single pool, cleaned, and then divided into a new leakage-aware split.
+The original datasets used different class definitions, so their annotations were remapped into three unified classes:
+
+- `basketball`
+- `hoop`
+- `player`
+
+The original train / validation / test splits were not preserved. All samples were merged into a single pool, cleaned, and then divided into a new leakage-aware train / validation split.
+
+### External Evaluation Datasets
+
+Two additional Roboflow datasets are kept completely separate from model development and are reserved for final external evaluation.
+
+**Dataset 04 — Basketball YOLO Dataset**
+
+- Classes: `ball`, `hoop`, `player`
+- License: CC BY 4.0
+- Source: https://universe.roboflow.com/basketball-yolo-dataset/basketball-yolo-dataset/dataset/1
+
+**Dataset 05 — Basketball Hoop, Ball and Player**
+
+- Original classes: `3pt_area`, `ball`, `court`, `hoop`, `number`, `paint`, `player`
+- License: CC BY 4.0
+- Source: https://universe.roboflow.com/basketball-stat-tracker/basketball-hoop-ball-and-player/dataset/1
+
+Only the original `test` split of each external dataset is reserved for final evaluation.
+
+Dataset 04 already uses the required object classes.
+
+Dataset 05 will be remapped for evaluation:
+
+- `ball` → `basketball`
+- `hoop` → `hoop`
+- `player` → `player`
+
+All other Dataset 05 classes will be ignored.
+
+The external datasets are not used for training, validation, hyperparameter tuning, or model selection.
 
 ## Dataset Preparation
 
@@ -64,13 +100,7 @@ Annotations such as `FG Attempt`, `FG Made`, `Ball in Basket`, and referee label
 4. **Missing file validation** — checked images/labels for consistency.
    - Missing clean labels: `0`
    - Removal entries missing from dataset: `0`
-5. **Class distribution analysis** — final planned split:
-
-   | Class | Train | Validation | Test |
-   |-------|------:|-----------:|-----:|
-   | basketball | 28,827 | 3,570 | 3,553 |
-   | hoop | 19,908 | 2,494 | 2,602 |
-   | player | 62,975 | 7,464 | 7,988 |
+5. **Class distribution analysis** — class distributions were verified after cleaning and after creating the final group-aware train / validation split.
 
    Classes were not forced to have equal annotation counts, since basketball scenes naturally contain more players than hoops or balls.
 
@@ -80,53 +110,59 @@ Annotations such as `FG Attempt`, `FG Made`, `Ball in Basket`, and referee label
    - Tiny-box review thresholds: basketball ≤ 6px, hoop ≤ 12px, player ≤ 8px
    - Same-class boxes with IoU ≥ 0.98 flagged as possible duplicates
    - Large boxes were analyzed but not used as a rejection criterion, since valid close-up images can naturally contain large objects
-8. **Manual QA** — suspicious samples exported for review (incorrect classes, inaccurate boxes, missing annotations, duplicates, unusable images, low gameplay relevance). Rejected samples tracked in `removal_list.csv`. The original merged dataset was never modified during QA.
+8. **Quality recheck** — suspicious samples were re-evaluated using multiple automatic quality checks.
+
+   Samples were removed when they contained:
+
+   - empty annotations
+   - severe blur
+   - duplicate annotations
+   - exact duplicate images with conflicting annotations
+
+   Tiny objects and images with many valid annotations were kept, since these can provide useful training information.
+
 9. **Duplicate analysis**
-   - *Exact duplicates* (SHA-256): 411 duplicate groups, 825 images inside duplicate groups, 414 redundant exact copies. Groups with identical labels were handled automatically; groups with differing labels were manually compared and the best-labeled version kept.
-   - *Near duplicates* (perceptual hashing): many visually similar images found, as expected given repeated courts, camera angles, formations, and consecutive frames — these were kept rather than removed.
-10. **Blur analysis** — sharpness measured via variance of the Laplacian.
+   - **Exact duplicates** (SHA-256): exact duplicate images were detected and redundant copies with identical annotations were removed.
+   - Exact duplicate groups with conflicting annotations were excluded during the final quality recheck.
+   - **Near duplicates** (perceptual hashing): many visually similar images were found, as expected from repeated courts, camera angles, formations, and consecutive frames. These were kept because small visual changes can still provide useful training information.
+10. **Blur analysis** — sharpness was measured using the variance of the Laplacian.
     - Blur threshold: `46.52`
-    - Images reviewed: `182`
-    - Images rejected: `76`
-    - Blurred images were not removed automatically, since motion blur is natural in basketball footage.
+    - Images below the final threshold: `199`
+    - Strongly blurred samples were excluded during the final quality recheck.
 
 ### Final Clean Pool
 
 | | Count |
 |---|---:|
 | Original images | 36,977 |
-| Removed samples | 782 |
-| **Clean samples** | **36,195** |
+| Removed samples | 1,124 |
+| **Clean samples** | **35,853** |
 
 ### Leakage-Aware Split
 
-A normal random split could place multiple Roboflow variants of the same original image into different subsets. To avoid this, samples were grouped by `source_dataset + original filename before ".rf."`, and all variants of the same original image were assigned to the same split.
+A normal random split could place multiple Roboflow variants of the same original image into different subsets.
 
-**Group statistics:**
+To reduce this risk, samples were grouped using:
 
-| | Count |
-|---|---:|
-| Clean samples | 36,195 |
-| Unique groups | 11,426 |
-| Single-image groups | 3,187 |
-| Multi-image groups | 8,239 |
-| Largest group | 24 |
+`source_dataset + original filename before ".rf."`
 
-**Final split** — reproducible group-aware 80 / 10 / 10:
+All variants belonging to the same original source image are assigned to the same split.
+
+The final development dataset uses a reproducible group-aware `80 / 20` split:
 
 | Split | Images |
-|-------|-------:|
-| Train | 28,956 |
-| Validation | 3,620 |
-| Test | 3,619 |
-| **Total** | **36,195** |
+|---|---:|
+| Train | 28,682 |
+| Validation | 7,171 |
+| **Total** | **35,853** |
 
 **Integrity checks:**
 
 - Train / Validation overlap: `0`
-- Train / Test overlap: `0`
-- Validation / Test overlap: `0`
 - Unassigned samples: `0`
+- Related Roboflow variants remain in the same split
+
+No internal test set is used. Final evaluation is performed separately on Dataset 04 and Dataset 05.
 
 ## Final Dataset Structure
 
@@ -136,36 +172,40 @@ data/
 │   ├── dataset_01/
 │   ├── dataset_02/
 │   └── dataset_03/
+│
 ├── merged/
 │   └── basketball_dataset_temp/
-└── processed/
-    └── basketball_dataset_final/
-        ├── train/
-        │   ├── images/
-        │   └── labels/
-        ├── valid/
-        │   ├── images/
-        │   └── labels/
-        ├── test/
-        │   ├── images/
-        │   └── labels/
-        ├── data.yaml
-        └── final_manifest.csv
+│
+├── processed/
+│   └── basketball_dataset_final/
+│       ├── train/
+│       │   ├── images/
+│       │   └── labels/
+│       ├── validation/
+│       │   ├── images/
+│       │   └── labels/
+│       ├── data.yaml
+│       └── final_manifest.csv
+│
+└── external_test/
+    ├── dataset_04/
+    └── dataset_05/
 ```
 
 `final_manifest.csv` preserves the connection between every final image and its original source dataset and filename.
 
 ## Notebooks
 
-- **`01_data_preparation.ipynb`** — the complete dataset preparation workflow: source inspection, class mapping, dataset merge, QA, manual review, duplicate analysis, blur analysis, clean-pool creation, group-aware split, and final dataset creation.
-
-The next notebook will focus on model training and evaluation.
+- **`01_data_preparation.ipynb`** — dataset preparation, merging, class mapping, QA, duplicate analysis, blur analysis, cleaning, group-aware splitting, and final dataset creation.
+- **`02_model_training.ipynb`** — YOLO26s training, validation, per-class analysis, error analysis, model selection, and final external evaluation.
 
 ## Model Direction
 
 The first main detector planned for fine-tuning is **YOLO26s**.
 
-Evaluation will focus on both overall and per-class metrics:
+During model development, evaluation will use the internal validation set.
+
+Metrics include:
 
 - Precision
 - Recall
@@ -174,22 +214,35 @@ Evaluation will focus on both overall and per-class metrics:
 
 Special attention will be given to **basketball recall**, since missed ball detections can strongly affect later tracking and shot-detection stages.
 
+Once model development is complete, the selected model will be evaluated separately on:
+
+- External Test 1 — Dataset 04
+- External Test 2 — Dataset 05
+
+These datasets remain unseen during training and model selection.
+
 ## Next Steps
 
 ```
-Load final dataset
+Load final development dataset
         ↓
 Visual sanity check
         ↓
 Train YOLO26s
         ↓
-Evaluate validation metrics
+Evaluate on Validation
         ↓
 Per-class analysis
         ↓
 Error analysis
         ↓
 Improve detector
+        ↓
+Select final model
+        ↓
+External Test 1
+        ↓
+External Test 2
         ↓
 Object tracking
         ↓
