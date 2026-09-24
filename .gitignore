@@ -15,3 +15,7 @@ Thumbs.db
 
 # Datasets
 data/
+
+# Training and evaluation outputs
+results/
+runs/
