@@ -22,3 +22,6 @@ data/
 # Training and evaluation outputs
 results/
 runs/
+
+# Videos
+videos/
